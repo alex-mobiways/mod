@@ -56,6 +56,18 @@
         return dec(raw) || '';
     }
 
+    function normalizeTitle(title){
+        try{
+            var t = (title||'')+'';
+            // убрать год и страну из запроса
+            t = t.replace(/\((19|20)\d{2}[^)]*\)/g, '');
+            t = t.replace(/\b(19|20)\d{2}\b/g, '');
+            t = t.replace(/\b(Исландия|США|Россия|Украина|Беларусь|Франция|Германия|Великобритания|Англия|Корея|Южная Корея|Северная Корея|Испания|Италия|Китай|Япония|Канада|Индия|Турция)\b/gi, '');
+            t = t.replace(/\s{2,}/g, ' ').trim();
+            return t;
+        }catch(e){ return title; }
+    }
+
     // Simple proxy chooser; can be extended in settings
     function proxy(name){
         // global toggles
@@ -135,7 +147,7 @@
             var json = null;
             try{ json = m && (0,eval)('("use strict"; ('+m[1]+'))'); }catch(e){}
             if(json && json.playlist){ extract = json; build(); }
-            else component.emptyForQuery(select_title);
+            else { if(self && self._noresults && self._noresults()) return; component.emptyForQuery(select_title); }
         }
 
         function build(){
@@ -184,13 +196,14 @@
         }
 
         this.search = function(_object, kinopoisk_id){
-            object = _object; select_title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
+            object = _object; select_title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '');
             var api = (+kinopoisk_id ? 'kp/' : 'imdb/') + kinopoisk_id;
-            getEmbed(api, function(html){ if(html) parse(html); else component.emptyForQuery(select_title); }, function(){ component.emptyForQuery(select_title); });
+            getEmbed(api, function(html){ if(html) parse(html); else if(self && self._noresults && self._noresults()){} else component.emptyForQuery(select_title); }, function(){ if(self && self._noresults && self._noresults()){} else component.emptyForQuery(select_title); });
         };
 
         this.filter = function(){ /* noop - only list */ };
         this.reset = function(){ component.reset(); this.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); };
+        this._noresults = function(){ if(component && component.fallbackSearch) return component.fallbackSearch('collaps'); else return false; };
         this.destroy = function(){ network.clear(); extract = null; };
     }
 
@@ -211,7 +224,7 @@
             html=(html||'').replace(/\n/g,' ');
             var m = html.match(/Playerjs\((\{.*?\})\);/);
             var cfg=null; try{ cfg = m && (0,eval)('("use strict"; (function(){ return '+m[1]+'; })())'); }catch(e){}
-            if(!cfg || !cfg.file){ component.emptyForQuery(select_title); return; }
+            if(!cfg || !cfg.file){ if(self && self._noresults && self._noresults()) return; component.emptyForQuery(select_title); return; }
             var file = decodePlayerJsHash(cfg.file);
             try{
                 var data = JSON.parse(file);
@@ -248,9 +261,9 @@
         this.search = function(_object, kinopoisk_id){
             object = _object; select_title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
             var api = (+kinopoisk_id ? 'kinopoisk/' : 'imdb/') + kinopoisk_id + '/iframe';
-            get(api, function(html){ if(html) parse(html); else component.emptyForQuery(select_title); }, function(){ component.emptyForQuery(select_title); });
+            get(api, function(html){ if(html) parse(html); else if(self && self._noresults && self._noresults()){} else component.emptyForQuery(select_title); }, function(){ if(self && self._noresults && self._noresults()){} else component.emptyForQuery(select_title); });
         };
-        this.filter = function(){}; this.reset=function(){ component.reset(); this.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }; this.destroy=function(){ network.clear(); };
+        this.filter = function(){}; this.reset=function(){ component.reset(); this.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }; this._noresults=function(){ if(component && component.fallbackSearch) return component.fallbackSearch('cdnmovies'); else return false; }; this.destroy=function(){ network.clear(); };
     }
 
     // HDRezka: requires mirror + (optionally) cookie for premium-only, basic extraction via ajax
@@ -261,7 +274,7 @@
         var cookie = (Lampa.Storage.get('my_online_rezka_cookie','')+'').trim();
         var headers = Lampa.Platform.is('android') ? {'User-Agent': baseUA()} : {};
         if(cookie && Lampa.Platform.is('android')) headers['Cookie'] = cookie;
-        var select_title=''; var extract=null;
+        var select_title=''; var extract=null; var alt_title=''; var sel_year=0;
 
         function searchPage(title, year, cb, err){
             var url = mirror + '/engine/ajax/search.php?query=' + encodeURIComponent(title);
@@ -281,17 +294,25 @@
                 }
             }catch(e){}
             var blocks = (text||'').match(/<div class=\"b-content__inline_item-link\">[\s\S]*?<\/div>/g) || [];
-            if(!blocks.length){ component.emptyForQuery(select_title); return; }
+            if(!blocks.length){
+                // попробовать альтернативное название
+                if(alt_title && alt_title !== select_title){
+                    var t = alt_title; alt_title = ''; // чтобы не зациклиться
+                    searchPage(t, sel_year, function(html){ pickLink(html); }, function(){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); });
+                    return;
+                }
+                if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); return;
+            }
             // naive: pick first
             var first = blocks[0];
             var href = (first.match(/href=\"([^\"]+)\"/)||[])[1] || '';
-            if(!href){ component.emptyForQuery(select_title); return; }
+            if(!href){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); return; }
             getPage(href);
         }
 
         function getPage(url){
             network.clear(); network.timeout(10000);
-            network.native(proxyLink(url,'rezka'), function(html){ parsePage((html||'')+'', url); }, function(a,c){ component.emptyForQuery(select_title); }, false, {dataType:'text', headers: headers});
+            network.native(proxyLink(url,'rezka'), function(html){ parsePage((html||'')+'', url); }, function(a,c){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); }, false, {dataType:'text', headers: headers});
         }
 
         function parsePage(html, url){
@@ -307,7 +328,7 @@
                 // fallback: parse .b-translators__item
                 (html.match(/data-translation_id=\"(\d+)\"/g)||[]).forEach(function(m){ var id = (m.match(/(\d+)/)||[])[1]; if(id && translators.indexOf(id)==-1) translators.push(id); });
             }
-            if(!film_id){ component.emptyForQuery(select_title); return; }
+            if(!film_id){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); return; }
             requestStreamList({film_id:film_id, is_series:is_series, favs:favs, translator_id: translators[0]});
         }
 
@@ -321,8 +342,8 @@
                 if(body && body.url){
                     var playlist = decodePlayerJsHash(body.url);
                     buildFromPlaylist(playlist);
-                } else component.emptyForQuery(select_title);
-            }, function(a,c){ component.emptyForQuery(select_title); }, post, {headers: headers});
+                } else { if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); }
+            }, function(a,c){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); }, post, {headers: headers});
         }
 
         function buildFromPlaylist(str){
@@ -357,10 +378,11 @@
         }
 
         this.search = function(_object, kinopoisk_id){
-            object=_object; select_title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
-            var search_date = object.search_date || object.movie.release_date || object.movie.first_air_date || object.movie.last_air_date || '0000';
-            var year = parseInt((search_date+'').slice(0,4));
-            searchPage(select_title, year, function(html){ pickLink(html); }, function(){ component.emptyForQuery(select_title); });
+            object=_object; select_title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '');
+            alt_title = normalizeTitle((object.movie && (object.movie.original_title || object.movie.original_name)) || '');
+            var search_date = object.search_date || (object.movie && (object.movie.release_date || object.movie.first_air_date || object.movie.last_air_date)) || '0000';
+            sel_year = parseInt((search_date+'').slice(0,4));
+            searchPage(select_title, sel_year, function(html){ pickLink(html); }, function(){ component.emptyForQuery(select_title); });
         };
         this.filter=function(){}; this.reset=function(){ component.reset(); this.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }; this.destroy=function(){ network.clear(); };
     }
@@ -375,7 +397,7 @@
         function url(p){ return api + p + (p.indexOf('?')>-1?'&':'?') + devQuery(); }
 
         this.search = function(_object){
-            object=_object; var title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || ''; var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
+            object=_object; var title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || ''); var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
             if(!token){ component.empty(Lampa.Lang.translate('settings_cub_not_specified') + ' Filmix'); return; }
             network.clear(); network.timeout(10000);
             network.native(proxyLink(url('search?story='+encodeURIComponent(title)),'filmix'), function(json){
@@ -393,7 +415,7 @@
         var base = 'https://api.service-kp.com/';
         var token = (Lampa.Storage.get('my_online_kinopub_token','')+'').trim();
         this.search = function(_object){
-            object=_object; var title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
+            object=_object; var title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '');
             if(!token){ component.empty(Lampa.Lang.translate('settings_cub_not_specified') + ' KinoPub'); return; }
             network.clear(); network.timeout(10000);
             var url = base + 'v1/items/search?query=' + encodeURIComponent(title) + '&access_token=' + encodeURIComponent(token);
@@ -416,6 +438,7 @@
         var sourceInstances = {};
         var sourcesOrder = [];
         var activeSource = '';
+        var triedSources = {};
         var last;
 
         var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
@@ -445,6 +468,29 @@
                 lab.text('Источник: ' + (meta.title||activeSource));
             }catch(e){}
         }
+
+        this.fallbackSearch = function(from){
+            try{ if(!from) from = activeSource; }catch(e){}
+            triedSources[from] = true;
+            // Предпочитаем HDRezka как универсальный по названию
+            if(sourceInstances['hdrezka'] && !triedSources['hdrezka']){
+                activeSource = 'hdrezka';
+                updateSourceLabel();
+                this.find();
+                return true;
+            }
+            // Иначе пробуем следующий доступный неиспользованный источник
+            for(var i=0;i<sourcesOrder.length;i++){
+                var n = sourcesOrder[i];
+                if(!triedSources[n] && sourceInstances[n]){
+                    activeSource = n;
+                    updateSourceLabel();
+                    this.find();
+                    return true;
+                }
+            }
+            return false;
+        };
 
         this.changeSource = function(name){
             if(name && sourceInstances[name]){
@@ -488,6 +534,7 @@
 
         this.search = function(){
             this.activity.loader(true);
+            triedSources = {};
             this.filter({ source: filter_sources }, { source: 0 });
             this.reset();
             this.find();
@@ -513,7 +560,10 @@
             src.search(object, query_id);
         };
 
-        this.filter = function(items, choice){ filter.render().find('.filter--sort span').text(Lampa.Lang.translate('settings_rest_source')); filter.set('filter', items, choice); };
+        this.filter = function(items, choice){
+            // не трогаем подпись активного источника
+            filter.set('filter', items, choice);
+        };
 
         this.append = function(item){ files.append(item); };
         this.start = function(){
