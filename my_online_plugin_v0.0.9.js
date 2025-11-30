@@ -146,7 +146,7 @@
             var m = html.match(/makePlayer\((\{.*?\})\)/);
             var json = null;
             try{ json = m && (0,eval)('("use strict"; ('+m[1]+'))'); }catch(e){}
-            if(json && json.playlist){ extract = json; build(); }
+            if(json){ extract = json; build(); }
             else { if(self && self._noresults && self._noresults()) return; component.emptyForQuery(select_title); }
         }
 
@@ -154,9 +154,10 @@
             var items = [];
             try{
                 if(extract.playlist && extract.playlist.seasons){
+                    // сериалы
                     extract.playlist.seasons.forEach(function(season){
                         (season.episodes||[]).forEach(function(ep){
-                            var link = ep.hls || ep.dash || '';
+                            var link = ep.hls || ep.dash || ep.file || '';
                             link = fixLinkProtocol(link, prefer_http, true);
                             items.push({
                                 season: parseInt(season.season||1),
@@ -170,8 +171,30 @@
                             });
                         });
                     });
+                } else if(Array.isArray(extract.playlist)){
+                    // фильмы: список вариантов
+                    extract.playlist.forEach(function(it){
+                        var label = it.title || select_title;
+                        var link = (it.file||'').split(' or ').filter(Boolean)[0] || it.file || it.hls || it.src || '';
+                        link = fixLinkProtocol(link, prefer_http, true);
+                        if(link) items.push({ title: label, quality:'', info:'', file: proxyLink(link,'collaps') });
+                    });
+                } else if(extract.file){
+                    var raw = decodePlayerJsHash(extract.file);
+                    try{
+                        var list = JSON.parse(raw);
+                        (list||[]).forEach(function(it){
+                            var link = (it.file||'').split(' or ').filter(Boolean)[0] || it.file || '';
+                            link = fixLinkProtocol(link, prefer_http, true);
+                            if(link) items.push({ title: it.title||select_title, quality:'', info:'', file: proxyLink(link,'collaps') });
+                        });
+                    }catch(e){
+                        var link = fixLinkProtocol((raw||'').replace(/^#/,'') || '', prefer_http, true);
+                        if(link) items.push({ title: select_title, quality:'', info:'', file: proxyLink(link,'collaps') });
+                    }
                 }
             }catch(e){}
+            if(!items || !items.length){ if(self && self._noresults && self._noresults()) return; return component.emptyForQuery(select_title); }
             append(items);
         }
 
@@ -468,11 +491,11 @@
         });
 
         function sourceMeta(name){ return all_sources.filter(function(s){return s.name===name;})[0] || {title:name}; }
+        var sourceBtn = null;
         function updateSourceLabel(){
             try{
-                var lab = filter.render().find('.filter--sort span');
                 var meta = sourceMeta(activeSource);
-                lab.text('Источник: ' + (meta.title||activeSource));
+                if(sourceBtn) sourceBtn.find('span').text('Источник: ' + (meta.title||activeSource));
             }catch(e){}
         }
 
@@ -511,21 +534,17 @@
             files.appendHead(filter.render());
             files.appendFiles(scroll.render());
             scroll.body().addClass('torrent-list');
-            // Кнопка сортировки как переключатель источников (балансер)
-            var sortBtn = filter.render().find('.filter--sort');
-            sortBtn.find('span').text('Источник');
-            sortBtn.off('hover:enter').on('hover:enter', function(){
+            // Собственная кнопка балансера источников (без использования системного sort)
+            sourceBtn = $('<div class="filter selector my-online-source"><span>Источник</span></div>');
+            sourceBtn.on('hover:enter', function(){
                 var items = sourcesOrder.map(function(n){
                     var m = all_sources.filter(function(s){return s.name===n;})[0] || {title:n};
                     return { title: m.title || n, source: n, selected: n===activeSource };
                 });
-                Lampa.Select.show({
-                    title: 'Источник',
-                    items: items,
-                    onBack: function(){ Lampa.Controller.toggle('content'); },
-                    onSelect: function(a){ self.changeSource(a.source); }
-                });
+                Lampa.Select.show({ title:'Источник', items: items, onBack:function(){ Lampa.Controller.toggle('content'); }, onSelect:function(a){ self.changeSource(a.source); } });
             });
+            // добавим слева от штатных фильтров
+            try{ filter.render().prepend(sourceBtn); }catch(e){}
             updateSourceLabel();
             this.search();
             return this.render();
@@ -582,13 +601,15 @@
                 },
                 up: function(){ if(Navigator.canmove('up')) Navigator.move('up'); else Lampa.Controller.toggle('head'); },
                 down: function(){ Navigator.move('down'); },
-                right: function(){ if (Navigator.canmove('right')) Navigator.move('right'); else filter.show('Источник','sort'); },
+                right: function(){ if (Navigator.canmove('right')) Navigator.move('right'); },
                 left: function(){ if (Navigator.canmove('left')) Navigator.move('left'); else Lampa.Controller.toggle('menu'); },
                 back: function(){ Lampa.Activity.backward(); }
             });
             Lampa.Controller.toggle('content');
             this.activity.loader(false);
         };
+        // Совместимость со старыми сборками Lampa, где фильтр вызывает onSearch
+        this.onSearch = function(){ try{ self.search(); }catch(e){} };
         this.empty = function (msg) {
             var empty = Lampa.Template.get('list_empty');
             if (msg) empty.find('.empty__descr').text(msg);
@@ -693,15 +714,29 @@
                 kpBtn.off('hover:enter').on('hover:enter', function(){
                     var status = kpBtn.find('.settings-param__status').removeClass('active error wait').addClass('wait');
                     var base = 'https://api.service-kp.com/';
-                    var user_code = ''; var code = '';
-                    var modal = $('<div><div class="broadcast__text">Подключение устройства KinoPub</div><div class="broadcast__device selector" style="background:#fff;color:#000;text-align:center">Ожидаем код...</div><div class="about"><br>1) Зайдите на https://kino.pub/device или https://service-kp.com/device<br>2) Введите код с экрана.<br>3) Вернитесь — токен установится автоматически.</div><br><div class="broadcast__scan"><div></div></div></div>');
-                    Lampa.Modal.open({ title:'', html: modal, onBack:function(){ clearInterval(poll); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect:function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
-                    var poll = setInterval(function(){
-                        var req2 = new Lampa.Reguest(); req2.timeout(8000);
-                        req2.native(base + 'oauth2/token', function(json){ if(json && json.access_token){ clearInterval(poll); Lampa.Modal.close(); Lampa.Storage.set('my_online_kinopub_token', json.access_token); status.removeClass('wait error').addClass('active'); Lampa.Settings.update(); } }, function(){}, false, { method:'POST', data: { 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': code } });
-                    }, 5000);
-                    var req = new Lampa.Reguest(); req.timeout(10000);
-                    req.native(base + 'oauth2/device', function(json){ if(json && json.user_code){ user_code = json.user_code; code = json.code; modal.find('.selector').text(user_code); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); }, { 'grant_type':'device_code','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh' });
+                    var user_code = ''; var device_code = ''; var expires = 0; var interval = 5000; var countdown = null; var poll = null;
+                    var modal = $('<div><div class="broadcast__text">Подключение устройства KinoPub</div><div class="broadcast__device selector" style="background:#fff;color:#000;text-align:center">Ожидаем код...</div><div class="about"><br>1) Зайдите на https://kino.pub/device или https://service-kp.com/device<br>2) Введите код с экрана.<br>3) Вернитесь — токен установится автоматически.</div><div class="about" style="margin-top:8px"><span class="kp-timer"></span></div><br><div class="broadcast__scan"><div></div></div></div>');
+                    function stopAll(){ if(poll) clearInterval(poll); if(countdown) clearInterval(countdown); poll=null; countdown=null; }
+                    function startPoll(){
+                        if(poll) clearInterval(poll);
+                        poll = setInterval(function(){
+                            var req2 = new Lampa.Reguest(); req2.timeout(8000);
+                            req2.native(base + 'oauth2/token', function(json){
+                                if(json && json.access_token){ stopAll(); Lampa.Modal.close(); Lampa.Storage.set('my_online_kinopub_token', json.access_token); status.removeClass('wait error').addClass('active'); Lampa.Settings.update(); }
+                            }, function(){}, false, { method:'POST', data: { 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': device_code } });
+                        }, interval);
+                    }
+                    function showTimer(){
+                        if(countdown) clearInterval(countdown);
+                        var left = expires; var el = modal.find('.kp-timer');
+                        countdown = setInterval(function(){ left--; if(left<=0){ clearInterval(countdown); requestDevice(); } el.text(left>0?('Код истечёт через '+left+' c'): 'Обновляем код...'); }, 1000);
+                    }
+                    function requestDevice(){
+                        var req = new Lampa.Reguest(); req.timeout(10000);
+                        req.native(base + 'oauth2/device', function(json){ if(json && json.user_code){ user_code = json.user_code; device_code = json.code; expires = parseInt(json.expires_in||1800); interval = parseInt(json.interval||5)*1000; modal.find('.selector').text(user_code); showTimer(); startPoll(); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); }, { 'grant_type':'device_code','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh' });
+                    }
+                    Lampa.Modal.open({ title:'', html: modal, onBack:function(){ stopAll(); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect:function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
+                    requestDevice();
                 });
             }
         });
@@ -739,10 +774,7 @@
         // per-source proxy toggles
         ['collaps','cdnmovies','rezka','filmix','iframe'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, false); });
 
-        // sensible defaults for webOS/Tizen (жёсткий CORS) — включаем прокси по умолчанию
-        if (Lampa.Platform && (Lampa.Platform.is('webos') || Lampa.Platform.is('tizen'))) {
-            ['collaps','cdnmovies','rezka','iframe'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, true); });
-        }
+        // по умолчанию прокси выключены; включайте вручную при необходимости
 
         Lampa.Params.select('my_online_rezka_mirror', '', '');
         Lampa.Params.select('my_online_rezka_cookie', '', '');
