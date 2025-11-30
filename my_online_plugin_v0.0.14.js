@@ -417,17 +417,23 @@
         this.filter=function(){}; this.reset=function(){ component.reset(); this.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }; this.destroy=function(){ network.clear(); };
     }
 
-    // Filmix (optional): token-based; minimal search -> list
+    // Filmix: поиск по названию через API, авторизация токеном
     function SourceFilmix(component, object){
         var network = new Lampa.Reguest();
         var api = 'http://filmixapp.vip/api/v2/';
-        var token = (Lampa.Storage.get('my_online_filmix_token','')+'').trim();
         var headers = Lampa.Platform.is('android') ? {'User-Agent':'okhttp/3.10.0'} : {};
-        function devQuery(){ return 'app_lang=ru_RU&user_dev_apk=2.2.12&user_dev_id=' + Lampa.Utils.uid(16) + '&user_dev_name=MyOnline&user_dev_os=11&user_dev_vendor=Lampa&user_dev_token='+encodeURIComponent(token||''); }
+        function currentToken(){ return (Lampa.Storage.get('my_online_filmix_token','')+'').trim(); }
+        function devQuery(){
+            var token = currentToken();
+            return 'app_lang=ru_RU&user_dev_apk=2.2.12&user_dev_id=' + Lampa.Utils.uid(16) + '&user_dev_name=MyOnline&user_dev_os=11&user_dev_vendor=Lampa&user_dev_token='+encodeURIComponent(token||'');
+        }
         function url(p){ return api + p + (p.indexOf('?')>-1?'&':'?') + devQuery(); }
 
         this.search = function(_object){
-            object=_object; var title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || ''); var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
+            object=_object;
+            var title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '');
+            var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
+            var token = currentToken();
             if(!token){ component.empty(Lampa.Lang.translate('settings_cub_not_specified') + ' Filmix'); return; }
             network.clear(); network.timeout(10000);
             network.native(proxyLink(url('search?story='+encodeURIComponent(title)),'filmix'), function(json){
@@ -439,13 +445,15 @@
         this.filter=function(){}; this.reset=function(){ this.search(object); }; this.destroy=function(){ network.clear(); };
     }
 
-    // KinoPub (optional): requires device auth; here we only stub search by title if token exists
+    // KinoPub: поиск по названию через официальное API, авторизация device access_token
     function SourceKinoPub(component, object){
         var network = new Lampa.Reguest();
         var base = 'https://api.service-kp.com/';
-        var token = (Lampa.Storage.get('my_online_kinopub_token','')+'').trim();
+        function currentToken(){ return (Lampa.Storage.get('my_online_kinopub_token','')+'').trim(); }
         this.search = function(_object){
-            object=_object; var title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '');
+            object=_object;
+            var title = normalizeTitle(object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '');
+            var token = currentToken();
             if(!token){ component.empty(Lampa.Lang.translate('settings_cub_not_specified') + ' KinoPub'); return; }
             network.clear(); network.timeout(10000);
             var url = base + 'v1/items/search?query=' + encodeURIComponent(title) + '&access_token=' + encodeURIComponent(token);
@@ -473,10 +481,10 @@
 
         var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
 
-        // Только Filmix и KinoPub как источники
+        // Только Filmix и KinoPub как источники (всегда доступны, токены проверяем в samot источниках)
         var all_sources = [
-            {name:'filmix', title:'Filmix', ctor: SourceFilmix, enabled:!!(Lampa.Storage.get('my_online_filmix_token','')+'')},
-            {name:'kinopub', title:'KinoPub', ctor: SourceKinoPub, enabled:!!(Lampa.Storage.get('my_online_kinopub_token','')+'')}
+            {name:'filmix', title:'Filmix', ctor: SourceFilmix, enabled:true},
+            {name:'kinopub', title:'KinoPub', ctor: SourceKinoPub, enabled:true}
         ];
 
         var filter_sources = all_sources.filter(function(s){ return s.enabled; }).map(function(s){ return s.name; });
