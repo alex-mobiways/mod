@@ -427,10 +427,33 @@
             if(meta){ sourceInstances[n] = new meta.ctor(self, object); }
         });
 
+        this.changeSource = function(name){
+            if(name && sourceInstances[name]){
+                activeSource = name;
+                this.search();
+            }
+        };
+
         this.create = function(){
             files.appendHead(filter.render());
             files.appendFiles(scroll.render());
             scroll.body().addClass('torrent-list');
+            // Кнопка сортировки как переключатель источников (балансер)
+            var sortBtn = filter.render().find('.filter--sort');
+            sortBtn.find('span').text('Источник');
+            sortBtn.off('hover:enter').on('hover:enter', function(){
+                var items = sourcesOrder.map(function(n){
+                    var m = all_sources.filter(function(s){return s.name===n;})[0] || {title:n};
+                    return { title: m.title || n, source: n, selected: n===activeSource };
+                });
+                Lampa.Select.show({
+                    title: 'Источник',
+                    items: items,
+                    onBack: function(){ Lampa.Controller.toggle('content'); },
+                    onSelect: function(a){ self.changeSource(a.source); }
+                });
+            });
+
             this.search();
             return this.render();
         };
@@ -451,8 +474,8 @@
         };
 
         this.find = function(){
-            var query_id = object.movie.kinopoisk_id || object.movie.imdb_id || '';
-            activeSource = sourcesOrder[0];
+            var query_id = object.movie.kinopoisk_id || object.movie.kinopoiskId || object.movie.kp_id || object.movie.kpId || object.movie.kinopoisk_ID || object.movie.imdb_id || '';
+            if(!activeSource) activeSource = sourcesOrder[0];
             var src = sourceInstances[activeSource];
             if(!src || !src.search){ this.emptyForQuery(object.movie.title); return; }
             src.search(object, query_id);
@@ -460,8 +483,23 @@
 
         this.filter = function(items, choice){ filter.render().find('.filter--sort span').text(Lampa.Lang.translate('settings_rest_source')); filter.set('filter', items, choice); };
 
-        this.append = function(item){ scroll.append(item); };
-        this.start = function(){ this.activity.loader(false); };
+        this.append = function(item){ files.append(item); };
+        this.start = function(){
+            var self = this;
+            Lampa.Controller.add('content', {
+                toggle: function(){
+                    Lampa.Controller.collectionSet(scroll.render(), files.render());
+                    Lampa.Controller.collectionFocus(false, scroll.render());
+                },
+                up: function(){ if(Navigator.canmove('up')) Navigator.move('up'); else Lampa.Controller.toggle('head'); },
+                down: function(){ Navigator.move('down'); },
+                right: function(){ if (Navigator.canmove('right')) Navigator.move('right'); else filter.show('Источник','sort'); },
+                left: function(){ if (Navigator.canmove('left')) Navigator.move('left'); else Lampa.Controller.toggle('menu'); },
+                back: function(){ Lampa.Activity.backward(); }
+            });
+            Lampa.Controller.toggle('content');
+            this.activity.loader(false);
+        };
         this.empty = function (msg) {
             var empty = Lampa.Template.get('list_empty');
             if (msg) empty.find('.empty__descr').text(msg);
@@ -517,10 +555,12 @@
         // Filmix
         t += "<div class=\"settings-param\" data-static=\"true\"><div class=\"settings-param__name\"><b>Filmix</b></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_filmix_token\" data-type=\"input\" data-string=\"true\" placeholder=\"#{settings_cub_not_specified}\"><div class=\"settings-param__name\">Filmix Token</div><div class=\"settings-param__value\"></div></div>";
+        t += "<div class=\"settings-param selector\" data-name=\"my_online_filmix_add\" data-static=\"true\"><div class=\"settings-param__name\">#{filmix_params_add_device}</div><div class=\"settings-param__status\"></div></div>";
 
         // KinoPub
         t += "<div class=\"settings-param\" data-static=\"true\"><div class=\"settings-param__name\"><b>KinoPub</b></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_kinopub_token\" data-type=\"input\" data-string=\"true\" placeholder=\"#{settings_cub_not_specified}\"><div class=\"settings-param__name\">Access Token</div><div class=\"settings-param__value\"></div></div>";
+        t += "<div class=\"settings-param selector\" data-name=\"my_online_kinopub_add\" data-static=\"true\"><div class=\"settings-param__name\">Добавить устройство (KinoPub)</div><div class=\"settings-param__status\"></div></div>";
 
         Lampa.Template.add('settings_my_online', '<div>'+t+'</div>');
 
@@ -537,7 +577,43 @@
 
         Lampa.Settings.listener.follow('open', function(e){
             if(e.name === 'my_online'){
-                // nothing special; values auto-bound by Lampa.Params
+                // Filmix device add
+                var filmixBtn = e.body.find('[data-name="my_online_filmix_add"]');
+                filmixBtn.off('hover:enter').on('hover:enter', function(){
+                    var status = filmixBtn.find('.settings-param__status').removeClass('active error wait').addClass('wait');
+                    var user_code = ''; var user_token = '';
+                    var devId = Lampa.Utils.uid(16);
+                    var api = 'http://filmixapp.vip/api/v2/';
+                    var devQuery = function(){ return 'app_lang=ru_RU&user_dev_apk=2.2.12&user_dev_id='+devId+'&user_dev_name=MyOnline&user_dev_os=11&user_dev_vendor=Lampa&user_dev_token='; };
+                    var modal = $('<div><div class="broadcast__text">Подключение устройства Filmix</div><div class="broadcast__device selector" style="text-align:center">Ожидаем код...</div><br><div class="broadcast__scan"><div></div></div></div>');
+                    Lampa.Modal.open({ title:'', html: modal, onBack: function(){ clearInterval(poll); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect: function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
+                    var poll = setInterval(function(){
+                        var url = api + 'user_profile?' + devQuery() + user_token;
+                        var req = new Lampa.Reguest();
+                        req.timeout(8000);
+                        req.native(proxyLink(url,'filmix'), function(json){ if(json && json.user_data){ clearInterval(poll); Lampa.Modal.close(); Lampa.Storage.set('my_online_filmix_token', user_token); status.removeClass('wait error').addClass('active'); Lampa.Settings.update(); } });
+                    }, 5000);
+                    // request device code
+                    var req = new Lampa.Reguest();
+                    req.timeout(10000);
+                    req.native(proxyLink(api + 'token_request?' + devQuery(),'filmix'), function(found){ if(found && found.status=='ok'){ user_token = found.code; user_code = found.user_code; modal.find('.selector').text(user_code); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); });
+                });
+
+                // KinoPub device add (OAuth2 device)
+                var kpBtn = e.body.find('[data-name="my_online_kinopub_add"]');
+                kpBtn.off('hover:enter').on('hover:enter', function(){
+                    var status = kpBtn.find('.settings-param__status').removeClass('active error wait').addClass('wait');
+                    var base = 'https://api.service-kp.com/';
+                    var user_code = ''; var code = '';
+                    var modal = $('<div><div class="broadcast__text">Подключение устройства KinoPub</div><div class="broadcast__device selector" style="background:#fff;color:#000;text-align:center">Ожидаем код...</div><br><div class="broadcast__scan"><div></div></div></div>');
+                    Lampa.Modal.open({ title:'', html: modal, onBack:function(){ clearInterval(poll); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect:function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
+                    var poll = setInterval(function(){
+                        var req2 = new Lampa.Reguest(); req2.timeout(8000);
+                        req2.native(base + 'oauth2/token', function(json){ if(json && json.access_token){ clearInterval(poll); Lampa.Modal.close(); Lampa.Storage.set('my_online_kinopub_token', json.access_token); status.removeClass('wait error').addClass('active'); Lampa.Settings.update(); } }, function(){}, false, { method:'POST', data: { 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': code } });
+                    }, 5000);
+                    var req = new Lampa.Reguest(); req.timeout(10000);
+                    req.native(base + 'oauth2/device', function(json){ if(json && json.user_code){ user_code = json.user_code; code = json.code; modal.find('.selector').text(user_code); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); }, { 'grant_type':'device_code','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh' });
+                });
             }
         });
     }
