@@ -721,9 +721,9 @@
                         if(poll) clearInterval(poll);
                         poll = setInterval(function(){
                             var req2 = new Lampa.Reguest(); req2.timeout(8000);
-                            req2.native(base + 'oauth2/token', function(json){
+                        req2.native(base + 'oauth2/token', function(json){
                                 if(json && json.access_token){ stopAll(); Lampa.Modal.close(); Lampa.Storage.set('my_online_kinopub_token', json.access_token); status.removeClass('wait error').addClass('active'); Lampa.Settings.update(); }
-                            }, function(){}, false, { method:'POST', data: { 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': device_code } });
+                            }, function(){}, { 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': device_code }, {});
                         }, interval);
                     }
                     function showTimer(){
@@ -733,7 +733,7 @@
                     }
                     function requestDevice(){
                         var req = new Lampa.Reguest(); req.timeout(10000);
-                        req.native(base + 'oauth2/device', function(json){ if(json && json.user_code){ user_code = json.user_code; device_code = json.code; expires = parseInt(json.expires_in||1800); interval = parseInt(json.interval||5)*1000; modal.find('.selector').text(user_code); showTimer(); startPoll(); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); }, { 'grant_type':'device_code','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh' });
+                        req.native(base + 'oauth2/device', function(json){ if(json && json.user_code){ user_code = json.user_code; device_code = json.code; expires = parseInt(json.expires_in||1800); interval = parseInt(json.interval||5)*1000; modal.find('.selector').text(user_code); showTimer(); startPoll(); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); }, { 'grant_type':'device_code','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh' }, {});
                     }
                     Lampa.Modal.open({ title:'', html: modal, onBack:function(){ stopAll(); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect:function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
                     requestDevice();
@@ -750,7 +750,7 @@
                         // похоже на user_code, попробуем обменять на токен
                         var base = 'https://api.service-kp.com/';
                         var req = new Lampa.Reguest(); req.timeout(10000);
-                        req.native(base+'oauth2/token', function(json){ if(json && json.access_token){ Lampa.Storage.set('my_online_kinopub_token', json.access_token); Lampa.Noty.show('KinoPub: токен сохранён'); Lampa.Settings.update(); } else { Lampa.Noty.show('KinoPub: введите Access Token или используйте Добавить устройство'); } }, function(){ Lampa.Noty.show('KinoPub: ошибка обмена кода'); }, false, { method:'POST', data:{ 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': val } });
+                        req.native(base+'oauth2/token', function(json){ if(json && json.access_token){ Lampa.Storage.set('my_online_kinopub_token', json.access_token); Lampa.Noty.show('KinoPub: токен сохранён'); Lampa.Settings.update(); } else { Lampa.Noty.show('KinoPub: введите Access Token или используйте Добавить устройство'); } }, function(){ Lampa.Noty.show('KinoPub: ошибка обмена кода'); }, { 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': val }, {});
                     }
                 }
                 if(e.name === 'my_online_filmix_token'){
