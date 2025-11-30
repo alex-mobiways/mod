@@ -618,7 +618,13 @@
             if(type === 'filter'){
                 if(a.stype === 'source'){
                     var srcName = filter_sources[b.index];
-                    if(srcName && srcName!==activeSource){ self.reset(); activeSource = srcName; var src = sourceInstances[srcName]; try{ filter.render().find('.filter--sort span').text('Источник: ' + (sourceMeta(activeSource).title||activeSource)); }catch(e){} if(src && src.search) src.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }
+                    if(srcName && srcName!==activeSource){
+                        self.reset();
+                        activeSource = srcName;
+                        var src = sourceInstances[srcName];
+                        try{ filter.render().find('.filter--sort span').text('Источник: ' + (sourceMeta(activeSource).title||activeSource)); }catch(e){}
+                        if(src && src.search) src.search(object);
+                    }
                 }
             } else if(type === 'sort'){
                 // not used
