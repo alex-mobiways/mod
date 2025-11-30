@@ -184,7 +184,7 @@
         }
 
         this.search = function(_object, kinopoisk_id){
-            object = _object; select_title = object.search || object.movie.title;
+            object = _object; select_title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
             var api = (+kinopoisk_id ? 'kp/' : 'imdb/') + kinopoisk_id;
             getEmbed(api, function(html){ if(html) parse(html); else component.emptyForQuery(select_title); }, function(){ component.emptyForQuery(select_title); });
         };
@@ -246,7 +246,7 @@
         }
 
         this.search = function(_object, kinopoisk_id){
-            object = _object; select_title = object.search || object.movie.title;
+            object = _object; select_title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
             var api = (+kinopoisk_id ? 'kinopoisk/' : 'imdb/') + kinopoisk_id + '/iframe';
             get(api, function(html){ if(html) parse(html); else component.emptyForQuery(select_title); }, function(){ component.emptyForQuery(select_title); });
         };
@@ -347,7 +347,7 @@
         }
 
         this.search = function(_object, kinopoisk_id){
-            object=_object; select_title = object.search || object.movie.title;
+            object=_object; select_title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
             var search_date = object.search_date || object.movie.release_date || object.movie.first_air_date || object.movie.last_air_date || '0000';
             var year = parseInt((search_date+'').slice(0,4));
             searchPage(select_title, year, function(html){ pickLink(html); }, function(){ component.emptyForQuery(select_title); });
@@ -365,7 +365,7 @@
         function url(p){ return api + p + (p.indexOf('?')>-1?'&':'?') + devQuery(); }
 
         this.search = function(_object){
-            object=_object; var title = object.search || object.movie.title; var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
+            object=_object; var title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || ''; var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
             if(!token){ component.empty(Lampa.Lang.translate('settings_cub_not_specified') + ' Filmix'); return; }
             network.clear(); network.timeout(10000);
             network.native(proxyLink(url('search?story='+encodeURIComponent(title)),'filmix'), function(json){
@@ -383,7 +383,7 @@
         var base = 'https://api.service-kp.com/';
         var token = (Lampa.Storage.get('my_online_kinopub_token','')+'').trim();
         this.search = function(_object){
-            object=_object; var title = object.search || object.movie.title;
+            object=_object; var title = object.search || (object.movie && (object.movie.title || object.movie.name || object.movie.original_title || object.movie.original_name)) || '';
             if(!token){ component.empty(Lampa.Lang.translate('settings_cub_not_specified') + ' KinoPub'); return; }
             network.clear(); network.timeout(10000);
             var url = base + 'v1/items/search?query=' + encodeURIComponent(title) + '&access_token=' + encodeURIComponent(token);
@@ -427,9 +427,19 @@
             if(meta){ sourceInstances[n] = new meta.ctor(self, object); }
         });
 
+        function sourceMeta(name){ return all_sources.filter(function(s){return s.name===name;})[0] || {title:name}; }
+        function updateSourceLabel(){
+            try{
+                var lab = filter.render().find('.filter--sort span');
+                var meta = sourceMeta(activeSource);
+                lab.text('Источник: ' + (meta.title||activeSource));
+            }catch(e){}
+        }
+
         this.changeSource = function(name){
             if(name && sourceInstances[name]){
                 activeSource = name;
+                updateSourceLabel();
                 this.search();
             }
         };
@@ -453,7 +463,7 @@
                     onSelect: function(a){ self.changeSource(a.source); }
                 });
             });
-
+            updateSourceLabel();
             this.search();
             return this.render();
         };
@@ -474,7 +484,13 @@
         };
 
         this.find = function(){
-            var query_id = object.movie.kinopoisk_id || object.movie.kinopoiskId || object.movie.kp_id || object.movie.kpId || object.movie.kinopoisk_ID || object.movie.imdb_id || '';
+            // Универсальный сбор ID и заголовка: разные сборки Lampa используют разные поля
+            var m = object && object.movie ? object.movie : (object || {});
+            var kp = m.kinopoisk_id || m.kinopoiskId || m.kp_id || m.kpId || m.kinopoisk_ID || m.kpid || m.id_kp || '';
+            var imdb = m.imdb_id || m.imdbId || '';
+            var query_id = kp || imdb || '';
+            // Заголовок для фоллбека поиска
+            object.search = object.search || m.title || m.name || m.original_title || m.original_name || '';
             if(!activeSource) activeSource = sourcesOrder[0];
             var src = sourceInstances[activeSource];
             if(!src || !src.search){ this.emptyForQuery(object.movie.title); return; }
@@ -524,7 +540,7 @@
             if(type === 'filter'){
                 if(a.stype === 'source'){
                     var srcName = filter_sources[b.index];
-                    if(srcName && srcName!==activeSource){ self.reset(); activeSource = srcName; var src = sourceInstances[srcName]; if(src && src.search) src.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }
+                    if(srcName && srcName!==activeSource){ self.reset(); activeSource = srcName; var src = sourceInstances[srcName]; try{ filter.render().find('.filter--sort span').text('Источник: ' + (sourceMeta(activeSource).title||activeSource)); }catch(e){} if(src && src.search) src.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }
                 }
             } else if(type === 'sort'){
                 // not used
