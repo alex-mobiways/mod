@@ -121,10 +121,12 @@
 
         function getEmbed(api, cb, err){
             network.clear(); network.timeout(10000);
-            var url = proxyLink(embed + api, 'collaps', encHeaders);
+            var prox = proxy('collaps');
+            var url = prox ? (prox + embed + api) : (embed + api);
+            var hdrs = prox ? {} : encHeaders;
             network.native(url,
                 function(html){ cb((html||'')+''); },
-                function(a,c){ if(err) err(network.errorDecode(a,c)); }, false, {dataType:'text', headers: encHeaders});
+                function(a,c){ if(err) err(network.errorDecode(a,c)); }, false, {dataType:'text', headers: hdrs});
         }
 
         function parse(html){
@@ -197,10 +199,11 @@
         var network = new Lampa.Reguest();
         var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
         var self = this; var select_title=''; var extract=null;
+        var EMBED = 'https://cdnmovies-stream.online/';
 
         function get(api, cb, err){
             network.clear(); network.timeout(10000);
-            var url = proxyLink(api, 'cdnmovies');
+            var url = proxyLink(EMBED + api, 'iframe');
             network.native(url, function(html){ cb((html||'')+''); }, function(a,c){ if(err) err(network.errorDecode(a,c)); }, false, {dataType:'text'});
         }
 
@@ -244,9 +247,8 @@
 
         this.search = function(_object, kinopoisk_id){
             object = _object; select_title = object.search || object.movie.title;
-            var base = (+kinopoisk_id ? 'kinopoisk/' : 'imdb/') + kinopoisk_id + '/iframe';
-            var url = 'https://cdnmovies.net/'+base; // common mirror; can be adjusted by proxy
-            get(url, function(html){ if(html) parse(html); else component.emptyForQuery(select_title); }, function(){ component.emptyForQuery(select_title); });
+            var api = (+kinopoisk_id ? 'kinopoisk/' : 'imdb/') + kinopoisk_id + '/iframe';
+            get(api, function(html){ if(html) parse(html); else component.emptyForQuery(select_title); }, function(){ component.emptyForQuery(select_title); });
         };
         this.filter = function(){}; this.reset=function(){ component.reset(); this.search(object, object.movie.kinopoisk_id || object.movie.imdb_id || ''); }; this.destroy=function(){ network.clear(); };
     }
@@ -409,15 +411,15 @@
         var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
 
         var all_sources = [
-            {name:'hdrezka', title:'HDrezka', ctor: SourceHDRezka, enabled:true},
             {name:'collaps', title:'Collaps', ctor: SourceCollaps, enabled:true},
             {name:'cdnmovies', title:'CDNMovies', ctor: SourceCDNMovies, enabled:true},
+            {name:'hdrezka', title:'HDrezka', ctor: SourceHDRezka, enabled:true},
             {name:'filmix', title:'Filmix', ctor: SourceFilmix, enabled:!!(Lampa.Storage.get('my_online_filmix_token','')+'')},
             {name:'kinopub', title:'KinoPub', ctor: SourceKinoPub, enabled:!!(Lampa.Storage.get('my_online_kinopub_token','')+'')}
         ];
 
         var filter_sources = all_sources.filter(function(s){ return s.enabled; }).map(function(s){ return s.name; });
-        if(!filter_sources.length) filter_sources = ['hdrezka'];
+        if(!filter_sources.length) filter_sources = ['collaps'];
         sourcesOrder = filter_sources.slice();
 
         sourcesOrder.forEach(function(n){
@@ -503,6 +505,7 @@
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_other_url\" data-type=\"input\" placeholder=\"#{settings_cub_not_specified}\"><div class=\"settings-param__name\">Proxy URL</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_collaps\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy Collaps</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_cdnmovies\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy CDNMovies</div><div class=\"settings-param__value\"></div></div>";
+        t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_iframe\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy Iframe (CDNMovies)</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_rezka\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy HDrezka</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_filmix\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy Filmix</div><div class=\"settings-param__value\"></div></div>";
 
@@ -546,7 +549,13 @@
         Lampa.Params.trigger('my_online_proxy_other', false);
         Lampa.Params.select('my_online_proxy_other_url', '', '');
 
-        ['collaps','cdnmovies','rezka','filmix'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, false); });
+        // per-source proxy toggles
+        ['collaps','cdnmovies','rezka','filmix','iframe'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, false); });
+
+        // sensible defaults for webOS/Tizen (жёсткий CORS) — включаем прокси по умолчанию
+        if (Lampa.Platform && (Lampa.Platform.is('webos') || Lampa.Platform.is('tizen'))) {
+            ['collaps','cdnmovies','rezka','iframe'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, true); });
+        }
 
         Lampa.Params.select('my_online_rezka_mirror', '', '');
         Lampa.Params.select('my_online_rezka_cookie', '', '');
