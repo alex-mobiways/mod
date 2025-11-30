@@ -46,3 +46,6 @@ yarn-error.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Project specific
+analysis/
