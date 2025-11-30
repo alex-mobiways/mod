@@ -266,11 +266,21 @@
         function searchPage(title, year, cb, err){
             var url = mirror + '/engine/ajax/search.php?query=' + encodeURIComponent(title);
             network.clear(); network.timeout(10000);
-            network.native(proxyLink(url,'rezka'), function(html){ cb((html||'')+''); }, function(a,c){ if(err) err(network.errorDecode(a,c)); }, false, {dataType:'text', headers: headers});
+            network.native(proxyLink(url,'rezka'), function(resp){ cb(resp); }, function(a,c){ if(err) err(network.errorDecode(a,c)); }, false, {dataType:'text', headers: headers});
         }
 
-        function pickLink(html){
-            var blocks = html.match(/<div class=\"b-content__inline_item-link\">[\s\S]*?<\/div>/g) || [];
+        function pickLink(resp){
+            var text = (resp||'')+'';
+            // Некоторые зеркала отдают JSON с html внутри
+            try{
+                var trimmed = (text||'').trim();
+                if(trimmed.charAt(0) === '{'){
+                    var json = Lampa.Arrays && Lampa.Arrays.decodeJson ? Lampa.Arrays.decodeJson(trimmed,null) : null;
+                    if(!json){ try{ json = JSON.parse(trimmed); }catch(e){} }
+                    if(json && (json.result || json.html)) text = json.result || json.html || '';
+                }
+            }catch(e){}
+            var blocks = (text||'').match(/<div class=\"b-content__inline_item-link\">[\s\S]*?<\/div>/g) || [];
             if(!blocks.length){ component.emptyForQuery(select_title); return; }
             // naive: pick first
             var first = blocks[0];
@@ -491,9 +501,15 @@
             var query_id = kp || imdb || '';
             // Заголовок для фоллбека поиска
             object.search = object.search || m.title || m.name || m.original_title || m.original_name || '';
+
+            // если нет ID — автоматически переключаемся на HDRezka (поиск по названию)
+            if(!query_id && sourcesOrder.indexOf('hdrezka') !== -1){
+                activeSource = 'hdrezka';
+            }
+
             if(!activeSource) activeSource = sourcesOrder[0];
             var src = sourceInstances[activeSource];
-            if(!src || !src.search){ this.emptyForQuery(object.movie.title); return; }
+            if(!src || !src.search){ this.emptyForQuery((object.movie && (object.movie.title||object.movie.name)) || object.search || ''); return; }
             src.search(object, query_id);
         };
 
