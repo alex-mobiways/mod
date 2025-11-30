@@ -400,6 +400,7 @@
         var scroll = new Lampa.Scroll({mask:true, over:true});
         var files = new Lampa.Explorer(object);
         var filter = new Lampa.Filter(object);
+        var self = this;
         var sourceInstances = {};
         var sourcesOrder = [];
         var activeSource = '';
@@ -423,8 +424,6 @@
             var meta = all_sources.filter(function(s){return s.name===n;})[0];
             if(meta){ sourceInstances[n] = new meta.ctor(self, object); }
         });
-
-        var self = this;
 
         this.create = function(){
             files.appendHead(filter.render());
@@ -555,7 +554,22 @@
 
         // Add button on full card
         var btn = "<div class=\"full-start__button selector view--my_online\" data-subtitle=\"My Online\">\n    <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 244 260\" width=\"40\" height=\"40\"><path d=\"M242,88v170H10V88h41l-38,38h37.1l38-38h38.4l-38,38h38.4l38-38h38.3l-38,38H204L242,88L242,88z M228.9,2l8,37.7l0,0 L191.2,10L228.9,2z M160.6,56l-45.8-29.7l38-8.1l45.8,29.7L160.6,56z M84.5,72.1L38.8,42.4l38-8.1l45.8,29.7L84.5,72.1z M10,88 L2,50.2L47.8,80L10,88z\" fill=\"currentColor\"/></svg>\n    <span>#{online_mod_title}</span>\n</div>";
-        Lampa.Listener.follow('full', function(e){ if(e.type==='complite'){ var b = $(Lampa.Lang.translate(btn)); b.on('hover:enter', function(){ Lampa.Activity.push({url:'', title:'My Online', component:'my_online', search: e.data.movie.title, search_one: e.data.movie.title, search_two: e.data.movie.original_title, movie: e.data.movie, page:1}); }); e.object.activity.render().find('.view--torrent').after(b);} });
+        Lampa.Listener.follow('full', function(e){
+            if(e.type==='complite'){
+                var b = $(Lampa.Lang.translate(btn));
+                b.on('hover:enter', function(){
+                    Lampa.Activity.push({
+                        url:'', title:'My Online', component:'my_online',
+                        search: e.data.movie.title, search_one: e.data.movie.title,
+                        search_two: e.data.movie.original_title, movie: e.data.movie, page:1
+                    });
+                });
+                var host = e.object.activity.render();
+                var anchor = host.find('.view--torrent');
+                if(anchor && anchor.length) anchor.after(b);
+                else host.find('.full-start__buttons').append(b);
+            }
+        });
 
         registerParams();
         addSettings();
@@ -563,4 +577,3 @@
 
     bootstrap();
 })();
-
