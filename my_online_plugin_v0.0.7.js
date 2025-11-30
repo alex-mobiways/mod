@@ -336,14 +336,21 @@
             var url = mirror + '/ajax/get_cdn_series/';
             var post = 'id=' + encodeURIComponent(ctx.film_id) + '&translator_id=' + encodeURIComponent(ctx.translator_id||'0') + '&season=1&episode=1&action=get_stream&favs=' + encodeURIComponent(ctx.favs||'0');
             if(!ctx.is_series){ url = mirror + '/ajax/get_cdn_movie/'; post = 'id=' + encodeURIComponent(ctx.film_id) + '&translator_id=' + encodeURIComponent(ctx.translator_id||'0') + '&action=get_movie&favs=' + encodeURIComponent(ctx.favs||'0'); }
-            network.clear(); network.timeout(10000);
-            network.native(proxyLink(url,'rezka'), function(json){
+            function onSuccess(json){
                 var body = (typeof json === 'string') ? Lampa.Arrays.decodeJson(json,{}) : json;
                 if(body && body.url){
                     var playlist = decodePlayerJsHash(body.url);
                     buildFromPlaylist(playlist);
                 } else { if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); }
-            }, function(a,c){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); }, post, {headers: headers});
+            }
+            function onError(){
+                // Fallback: некоторые прокси режут POST — пробуем GET
+                var getUrl = url + '?' + post;
+                var req2 = new Lampa.Reguest(); req2.timeout(10000);
+                req2.native(proxyLink(getUrl,'rezka'), function(json){ onSuccess(json); }, function(){ if(component && component.fallbackSearch && component.fallbackSearch('hdrezka')) return; component.emptyForQuery(select_title); }, false, {headers: headers});
+            }
+            network.clear(); network.timeout(10000);
+            network.native(proxyLink(url,'rezka'), onSuccess, function(){ onError(); }, post, {headers: headers});
         }
 
         function buildFromPlaylist(str){
@@ -667,7 +674,7 @@
                     var devId = Lampa.Utils.uid(16);
                     var api = 'http://filmixapp.vip/api/v2/';
                     var devQuery = function(){ return 'app_lang=ru_RU&user_dev_apk=2.2.12&user_dev_id='+devId+'&user_dev_name=MyOnline&user_dev_os=11&user_dev_vendor=Lampa&user_dev_token='; };
-                    var modal = $('<div><div class="broadcast__text">Подключение устройства Filmix</div><div class="broadcast__device selector" style="text-align:center">Ожидаем код...</div><br><div class="broadcast__scan"><div></div></div></div>');
+                    var modal = $('<div><div class="broadcast__text">Подключение устройства Filmix</div><div class="broadcast__device selector" style="text-align:center">Ожидаем код...</div><div class="about"><br>1) Откройте сайт Filmix (страница активации устройства).<br>2) Введите показанный код.<br>3) Вернитесь в приложение — токен сохранится автоматически.</div><br><div class="broadcast__scan"><div></div></div></div>');
                     Lampa.Modal.open({ title:'', html: modal, onBack: function(){ clearInterval(poll); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect: function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
                     var poll = setInterval(function(){
                         var url = api + 'user_profile?' + devQuery() + user_token;
@@ -687,7 +694,7 @@
                     var status = kpBtn.find('.settings-param__status').removeClass('active error wait').addClass('wait');
                     var base = 'https://api.service-kp.com/';
                     var user_code = ''; var code = '';
-                    var modal = $('<div><div class="broadcast__text">Подключение устройства KinoPub</div><div class="broadcast__device selector" style="background:#fff;color:#000;text-align:center">Ожидаем код...</div><br><div class="broadcast__scan"><div></div></div></div>');
+                    var modal = $('<div><div class="broadcast__text">Подключение устройства KinoPub</div><div class="broadcast__device selector" style="background:#fff;color:#000;text-align:center">Ожидаем код...</div><div class="about"><br>1) Зайдите на https://kino.pub/device или https://service-kp.com/device<br>2) Введите код с экрана.<br>3) Вернитесь — токен установится автоматически.</div><br><div class="broadcast__scan"><div></div></div></div>');
                     Lampa.Modal.open({ title:'', html: modal, onBack:function(){ clearInterval(poll); Lampa.Modal.close(); Lampa.Controller.toggle('settings_component'); }, onSelect:function(){ Lampa.Utils.copyTextToClipboard(user_code, function(){ Lampa.Noty.show('Скопировано'); }); } });
                     var poll = setInterval(function(){
                         var req2 = new Lampa.Reguest(); req2.timeout(8000);
@@ -697,6 +704,28 @@
                     req.native(base + 'oauth2/device', function(json){ if(json && json.user_code){ user_code = json.user_code; code = json.code; modal.find('.selector').text(user_code); } else { status.removeClass('wait active').addClass('error'); } }, function(){ status.removeClass('wait active').addClass('error'); }, { 'grant_type':'device_code','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh' });
                 });
             }
+        });
+
+        // Если пользователь ошибочно вводит код устройства в поле токена
+        Lampa.Settings.listener.follow('change', function(e){
+            try{
+                if(e.name === 'my_online_kinopub_token'){
+                    var val = (Lampa.Storage.get('my_online_kinopub_token','')+'').trim();
+                    if(val && /^[A-Z0-9]{4,}$/.test(val) && val.length <= 16){
+                        // похоже на user_code, попробуем обменять на токен
+                        var base = 'https://api.service-kp.com/';
+                        var req = new Lampa.Reguest(); req.timeout(10000);
+                        req.native(base+'oauth2/token', function(json){ if(json && json.access_token){ Lampa.Storage.set('my_online_kinopub_token', json.access_token); Lampa.Noty.show('KinoPub: токен сохранён'); Lampa.Settings.update(); } else { Lampa.Noty.show('KinoPub: введите Access Token или используйте Добавить устройство'); } }, function(){ Lampa.Noty.show('KinoPub: ошибка обмена кода'); }, false, { method:'POST', data:{ 'grant_type':'device_token','client_id':'xbmc','client_secret':'cgg3gtifu46urtfp2zp1nqtba0k2ezxh','code': val } });
+                    }
+                }
+                if(e.name === 'my_online_filmix_token'){
+                    var fval = (Lampa.Storage.get('my_online_filmix_token','')+'').trim();
+                    if(fval && /^[A-Z0-9]{4,}$/.test(fval) && fval.length <= 12){
+                        // у Filmix код устройства не является токеном — подсказка
+                        Lampa.Noty.show('Filmix: используйте Добавить устройство. Вводите именно token, а не код устройства.');
+                    }
+                }
+            }catch(err){}
         });
     }
 
