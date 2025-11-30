@@ -473,16 +473,14 @@
 
         var prefer_http = Lampa.Storage.field('my_online_prefer_http') === true;
 
+        // Только Filmix и KinoPub как источники
         var all_sources = [
-            {name:'collaps', title:'Collaps', ctor: SourceCollaps, enabled:true},
-            {name:'cdnmovies', title:'CDNMovies', ctor: SourceCDNMovies, enabled:true},
-            {name:'hdrezka', title:'HDrezka', ctor: SourceHDRezka, enabled:true},
             {name:'filmix', title:'Filmix', ctor: SourceFilmix, enabled:!!(Lampa.Storage.get('my_online_filmix_token','')+'')},
             {name:'kinopub', title:'KinoPub', ctor: SourceKinoPub, enabled:!!(Lampa.Storage.get('my_online_kinopub_token','')+'')}
         ];
 
         var filter_sources = all_sources.filter(function(s){ return s.enabled; }).map(function(s){ return s.name; });
-        if(!filter_sources.length) filter_sources = ['collaps'];
+        if(!filter_sources.length) filter_sources = ['filmix'];
         sourcesOrder = filter_sources.slice();
 
         sourcesOrder.forEach(function(n){
@@ -502,22 +500,14 @@
         this.fallbackSearch = function(from){
             try{ if(!from) from = activeSource; }catch(e){}
             triedSources[from] = true;
-            // Предпочитаем HDRezka как универсальный по названию
-            if(sourceInstances['hdrezka'] && !triedSources['hdrezka']){
-                activeSource = 'hdrezka';
+            // У нас только два источника: Filmix и KinoPub.
+            // Пытаемся просто переключиться на другой, если он доступен.
+            var alt = (from === 'filmix') ? 'kinopub' : 'filmix';
+            if(sourceInstances[alt] && !triedSources[alt]){
+                activeSource = alt;
                 updateSourceLabel();
                 this.find();
                 return true;
-            }
-            // Иначе пробуем следующий доступный неиспользованный источник
-            for(var i=0;i<sourcesOrder.length;i++){
-                var n = sourcesOrder[i];
-                if(!triedSources[n] && sourceInstances[n]){
-                    activeSource = n;
-                    updateSourceLabel();
-                    this.find();
-                    return true;
-                }
             }
             return false;
         };
@@ -567,23 +557,17 @@
         };
 
         this.find = function(){
-            // Универсальный сбор ID и заголовка: разные сборки Lampa используют разные поля
+            // Для Filmix/KinoPub ищем только по названию, ID не требуются
             var m = object && object.movie ? object.movie : (object || {});
-            var kp = m.kinopoisk_id || m.kinopoiskId || m.kp_id || m.kpId || m.kinopoisk_ID || m.kpid || m.id_kp || '';
-            var imdb = m.imdb_id || m.imdbId || '';
-            var query_id = kp || imdb || '';
-            // Заголовок для фоллбека поиска
             object.search = object.search || m.title || m.name || m.original_title || m.original_name || '';
-
-            // если нет ID — автоматически переключаемся на HDRezka (поиск по названию)
-            if(!query_id && sourcesOrder.indexOf('hdrezka') !== -1){
-                activeSource = 'hdrezka';
-            }
 
             if(!activeSource) activeSource = sourcesOrder[0];
             var src = sourceInstances[activeSource];
-            if(!src || !src.search){ this.emptyForQuery((object.movie && (object.movie.title||object.movie.name)) || object.search || ''); return; }
-            src.search(object, query_id);
+            if(!src || !src.search){
+                this.emptyForQuery((object.movie && (object.movie.title||object.movie.name)) || object.search || '');
+                return;
+            }
+            src.search(object);
         };
 
         this.filter = function(items, choice){
@@ -648,19 +632,10 @@
         t += "<div class=\"settings-param selector\" data-name=\"my_online_prefer_http\" data-type=\"toggle\"><div class=\"settings-param__name\">#{settings_rest_use_http}</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_full_episode_title\" data-type=\"toggle\"><div class=\"settings-param__name\">#{online_mod_full_episode_title}</div><div class=\"settings-param__value\"></div></div>";
 
-        // Proxies
+        // Proxies (оставляем только общие и для Filmix)
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_other\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy (custom)</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_other_url\" data-type=\"input\" placeholder=\"#{settings_cub_not_specified}\"><div class=\"settings-param__name\">Proxy URL</div><div class=\"settings-param__value\"></div></div>";
-        t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_collaps\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy Collaps</div><div class=\"settings-param__value\"></div></div>";
-        t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_cdnmovies\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy CDNMovies</div><div class=\"settings-param__value\"></div></div>";
-        t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_iframe\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy Iframe (CDNMovies)</div><div class=\"settings-param__value\"></div></div>";
-        t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_rezka\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy HDrezka</div><div class=\"settings-param__value\"></div></div>";
         t += "<div class=\"settings-param selector\" data-name=\"my_online_proxy_filmix\" data-type=\"toggle\"><div class=\"settings-param__name\">Proxy Filmix</div><div class=\"settings-param__value\"></div></div>";
-
-        // Rezka
-        t += "<div class=\"settings-param\" data-static=\"true\"><div class=\"settings-param__name\"><b>HDrezka</b></div></div>";
-        t += "<div class=\"settings-param selector\" data-name=\"my_online_rezka_mirror\" data-type=\"input\" placeholder=\"https://rezka.ag\"><div class=\"settings-param__name\">Mirror</div><div class=\"settings-param__value\"></div></div>";
-        t += "<div class=\"settings-param selector\" data-name=\"my_online_rezka_cookie\" data-type=\"input\" data-string=\"true\" placeholder=\"PHPSESSID=...; ...\"><div class=\"settings-param__name\">Cookie</div><div class=\"settings-param__value\"></div></div>";
 
         // Filmix
         t += "<div class=\"settings-param\" data-static=\"true\"><div class=\"settings-param__name\"><b>Filmix</b></div></div>";
@@ -771,13 +746,11 @@
         Lampa.Params.trigger('my_online_proxy_other', false);
         Lampa.Params.select('my_online_proxy_other_url', '', '');
 
-        // per-source proxy toggles
-        ['collaps','cdnmovies','rezka','filmix','iframe'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, false); });
+        // per-source proxy toggles (теперь только Filmix)
+        ['filmix'].forEach(function(n){ Lampa.Params.trigger('my_online_proxy_'+n, false); });
 
         // по умолчанию прокси выключены; включайте вручную при необходимости
 
-        Lampa.Params.select('my_online_rezka_mirror', '', '');
-        Lampa.Params.select('my_online_rezka_cookie', '', '');
         Lampa.Params.select('my_online_filmix_token', '', '');
         Lampa.Params.select('my_online_kinopub_token', '', '');
     }
