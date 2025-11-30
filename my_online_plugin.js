@@ -434,7 +434,11 @@
         };
 
         this.render = function(){ return files.render(); };
-        this.reset = function(){ files.clear(); scroll.clear(); };
+        this.reset = function(){
+            try{ scroll.render().find('.empty').remove(); }catch(e){}
+            if(typeof scroll.clear === 'function') scroll.clear();
+            if(typeof scroll.reset === 'function') scroll.reset();
+        };
         this.destroy = function(){ network.clear(); if(sourceInstances[activeSource] && sourceInstances[activeSource].destroy) sourceInstances[activeSource].destroy(); };
 
         this.search = function(){
