@@ -460,8 +460,21 @@
 
         this.append = function(item){ scroll.append(item); };
         this.start = function(){ this.activity.loader(false); };
-        this.emptyForQuery = function(title){ this.activity.loader(false); files.empty(Lampa.Lang.translate('search_nofound') + ' ('+(title||'')+')'); };
-        this.empty = function(text){ this.activity.loader(false); files.empty(text||Lampa.Lang.translate('search_nofound')); };
+        this.empty = function (msg) {
+            var empty = Lampa.Template.get('list_empty');
+            if (msg) empty.find('.empty__descr').text(msg);
+            scroll.append(empty);
+            this.activity.loader(false);
+        };
+        this.emptyForQuery = function (query) {
+            var text = '';
+            try {
+                text = Lampa.Lang.translate('online_mod_query_start') + ' (' + (query||'') + ') ' + Lampa.Lang.translate('online_mod_query_end');
+            } catch(e) {
+                text = (Lampa.Lang.translate('search_nofound')||'Ничего не найдено') + ': ' + (query||'');
+            }
+            this.empty(text);
+        };
 
         this.formatEpisodeTitle = function(s,e,name){ var title=''; var full = Lampa.Storage.field('my_online_full_episode_title')===true; if(s!=null&&s!=='') title = (full?Lampa.Lang.translate('torrent_serial_season')+' ':'S')+s+' / '; if(!name||name==='') name = Lampa.Lang.translate('torrent_serial_episode')+' '+e; else if(e!=null&&e!=='') name = Lampa.Lang.translate('torrent_serial_episode')+' '+e+' - '+name; return title+name; };
         this.getLastEpisode = function(items){ var last=0; (items||[]).forEach(function(i){ if(i.episode && i.episode>last) last=i.episode; }); return last; };
